@@ -1,4 +1,4 @@
-// ver2.1
+// ver2.2
 function getGA4Report7days() {
   // GA4のプロパティIDを入力してください（数値のみ）
   const propertyId = '331542258';
@@ -24,31 +24,7 @@ function getGA4Report7days() {
     dateRanges: [{
       startDate: '7daysAgo',
       endDate: 'yesterday'
-    }],
-    dimensionFilter: {
-      andGroup: {
-        expressions: [
-          {
-            filter: {
-              fieldName: 'sessionSource',
-              stringFilter: {
-                value: 'meta',
-                matchType: 'EXACT'
-              }
-            }
-          },
-          {
-            filter: {
-              fieldName: 'sessionMedium',
-              stringFilter: {
-                value: 'infeed',
-                matchType: 'EXACT'
-              }
-            }
-          }
-        ]
-      }
-    }
+    }]
   };
   try {
     // レポートの実行
@@ -131,7 +107,7 @@ function getGA4Report7days() {
         // 数値列にカンマ区切りを設定（3つのCVカラム）
         sheet.getRange(2, 7, updatedData.length, 3).setNumberFormat('#,##0');
       }
-      Logger.log('Report data updated for the last 7 days with source "meta" and medium "infeed" filter and sorted by date.');
+      Logger.log('Report data updated for the last 7 days and sorted by date.');
     } else {
       Logger.log('No data returned from the report.');
     }
