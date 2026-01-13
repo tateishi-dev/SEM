@@ -147,7 +147,7 @@ function fetchAndInsertForDate_7days_(propertyId, projectId, datasetId, tempTabl
         date: formattedDate,
         google_ads_campaign_name: row.dimensionValues[0].value,
         google_ads_ad_group_name: row.dimensionValues[1].value,
-        session_google_ads_query: row.dimensionValues[2].value,
+        google_ads_query: row.dimensionValues[2].value,
         event_name: row.dimensionValues[4].value,
         event_count: parseInt(row.metricValues[0].value),
         fetched_at: fetchedAt
@@ -187,7 +187,7 @@ function createTempTable_7days_(projectId, datasetId, tempTableId) {
         {name: 'date', type: 'DATE', mode: 'REQUIRED'},
         {name: 'google_ads_campaign_name', type: 'STRING', mode: 'NULLABLE'},
         {name: 'google_ads_ad_group_name', type: 'STRING', mode: 'NULLABLE'},
-        {name: 'session_google_ads_query', type: 'STRING', mode: 'NULLABLE'},
+        {name: 'google_ads_query', type: 'STRING', mode: 'NULLABLE'},
         {name: 'event_name', type: 'STRING', mode: 'NULLABLE'},
         {name: 'event_count', type: 'INTEGER', mode: 'NULLABLE'},
         {name: 'fetched_at', type: 'TIMESTAMP', mode: 'REQUIRED'}
@@ -242,7 +242,7 @@ function mergeToMainTable_7days_(projectId, datasetId, tableId, tempTableId) {
       FROM (
         SELECT *,
           ROW_NUMBER() OVER (
-            PARTITION BY date, google_ads_campaign_name, google_ads_ad_group_name, session_google_ads_query, event_name
+            PARTITION BY date, google_ads_campaign_name, google_ads_ad_group_name, google_ads_query, event_name
             ORDER BY fetched_at DESC
           ) as row_num
         FROM (
@@ -263,7 +263,7 @@ function mergeToMainTable_7days_(projectId, datasetId, tableId, tempTableId) {
       FROM (
         SELECT *,
           ROW_NUMBER() OVER (
-            PARTITION BY date, google_ads_campaign_name, google_ads_ad_group_name, session_google_ads_query, event_name
+            PARTITION BY date, google_ads_campaign_name, google_ads_ad_group_name, google_ads_query, event_name
             ORDER BY fetched_at DESC
           ) as row_num
         FROM \`${projectId}.${datasetId}.${tempTableId}\`
