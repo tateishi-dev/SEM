@@ -1,4 +1,4 @@
-// ver3.1 - BigQuery対応版
+// ver3.2 - BigQuery対応版（パーティション対応）
 function getGA4Report7days() {
   // GA4のプロパティIDを入力してください（数値のみ）
   const propertyId = '331542258';
@@ -140,6 +140,10 @@ function ensureTableExists_(projectId, datasetId, tableId) {
           {name: 'cv_contract_all', type: 'INTEGER', mode: 'NULLABLE'},
           {name: 'fetched_at', type: 'TIMESTAMP', mode: 'REQUIRED'}
         ]
+      },
+      timePartitioning: {
+        type: 'DAY',
+        field: 'date'
       }
     };
     BigQuery.Tables.insert(table, projectId, datasetId);
@@ -168,17 +172,13 @@ function insertRowsToBigQuery_(projectId, datasetId, tableId, rows) {
  */
 function deduplicateTable_(projectId, datasetId, tableId) {
   const query = `
-    CREATE OR REPLACE TABLE \`${projectId}.${datasetId}.${tableId}\` AS
-    SELECT * EXCEPT(row_num)
-    FROM (
-      SELECT *,
-        ROW_NUMBER() OVER (
-          PARTITION BY date, session_source_medium, session_manual_campaign_name, session_manual_term, session_google_ads_query
-          ORDER BY fetched_at DESC
-        ) as row_num
+    DELETE FROM \`${projectId}.${datasetId}.${tableId}\`
+    WHERE STRUCT(date, session_source_medium, session_manual_campaign_name, session_manual_term, session_google_ads_query, fetched_at)
+    NOT IN (
+      SELECT AS STRUCT date, session_source_medium, session_manual_campaign_name, session_manual_term, session_google_ads_query, MAX(fetched_at) as fetched_at
       FROM \`${projectId}.${datasetId}.${tableId}\`
+      GROUP BY date, session_source_medium, session_manual_campaign_name, session_manual_term, session_google_ads_query
     )
-    WHERE row_num = 1
   `;
 
   const request = {
