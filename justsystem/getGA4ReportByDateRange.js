@@ -1,41 +1,30 @@
-// ver3.3 - BigQuery対応版（パーティション対応）
+// 日付指定でGA4レポートをBigQueryに保存
 
 // 設定
-const CONFIG = {
+const CONFIG_DATERANGE = {
   propertyId: '331542258',
   projectId: 'cyberace-mad',
   datasetId: 'trocco_justsystem',
-  tableId: 'ga4_justsystems_google_ads_query'
+  tableId: 'ga4_justsystems_google_ads_query',
+  // ↓ここで日付を指定
+  startDate: '2025-01-01',
+  endDate: '2025-01-10'
 };
 
 /**
- * 過去7日間のレポートを取得してBigQueryに保存
- */
-function getGA4Report7days() {
-  getGA4Report_('7daysAgo', 'yesterday');
-}
-
-/**
  * 日付指定でレポートを取得してBigQueryに保存
- * @param {string} startDate - 開始日（YYYY-MM-DD形式）
- * @param {string} endDate - 終了日（YYYY-MM-DD形式）
+ * CONFIG_DATERANGEのstartDateとendDateを変更して実行
  */
-function getGA4ReportByDateRange(startDate, endDate) {
-  if (!startDate || !endDate) {
-    Logger.log('エラー: startDateとendDateを指定してください（YYYY-MM-DD形式）');
-    return;
-  }
-  getGA4Report_(startDate, endDate);
-}
-
-/**
- * レポート取得の共通処理
- */
-function getGA4Report_(startDate, endDate) {
-  const { propertyId, projectId, datasetId, tableId } = CONFIG;
+function getGA4ReportByDateRange() {
+  const { propertyId, projectId, datasetId, tableId, startDate, endDate } = CONFIG_DATERANGE;
 
   if (propertyId === 'YOUR_GA4_PROPERTY_ID' || isNaN(propertyId)) {
-    Logger.log('エラー: 有効なGA4プロパティIDを設定してください。数値のみが有効です。');
+    Logger.log('エラー: 有効なGA4プロパティIDを設定してください。');
+    return;
+  }
+
+  if (!startDate || !endDate) {
+    Logger.log('エラー: CONFIG_DATERANGEのstartDateとendDateを設定してください（YYYY-MM-DD形式）');
     return;
   }
 
@@ -64,7 +53,7 @@ function getGA4Report_(startDate, endDate) {
     const report = AnalyticsData.Properties.runReport(request, 'properties/' + propertyId);
 
     if (report && report.rows) {
-      ensureTableExists_(projectId, datasetId, tableId);
+      ensureTableExists_daterange_(projectId, datasetId, tableId);
 
       const fetchedAt = new Date().toISOString();
 
@@ -115,10 +104,10 @@ function getGA4Report_(startDate, endDate) {
       });
 
       if (rows.length > 0) {
-        insertRowsToBigQuery_(projectId, datasetId, tableId, rows);
+        insertRowsToBigQuery_daterange_(projectId, datasetId, tableId, rows);
         Logger.log(rows.length + ' 行のデータをBigQueryに挿入しました。');
 
-        deduplicateTable_(projectId, datasetId, tableId);
+        deduplicateTable_daterange_(projectId, datasetId, tableId);
         Logger.log('重複データを削除しました。');
       }
 
@@ -131,15 +120,11 @@ function getGA4Report_(startDate, endDate) {
   }
 }
 
-/**
- * テーブルが存在しない場合は作成する
- */
-function ensureTableExists_(projectId, datasetId, tableId) {
+function ensureTableExists_daterange_(projectId, datasetId, tableId) {
   try {
     BigQuery.Tables.get(projectId, datasetId, tableId);
     Logger.log('テーブルは既に存在します: ' + tableId);
   } catch (e) {
-    // テーブルが存在しない場合は作成
     const table = {
       tableReference: {
         projectId: projectId,
@@ -169,26 +154,15 @@ function ensureTableExists_(projectId, datasetId, tableId) {
   }
 }
 
-/**
- * BigQueryにデータを挿入する
- */
-function insertRowsToBigQuery_(projectId, datasetId, tableId, rows) {
-  const insertAllRequest = {
-    rows: rows
-  };
-
-  const response = BigQuery.Tabledata.insertAll(insertAllRequest, projectId, datasetId, tableId);
-
+function insertRowsToBigQuery_daterange_(projectId, datasetId, tableId, rows) {
+  const response = BigQuery.Tabledata.insertAll({rows: rows}, projectId, datasetId, tableId);
   if (response.insertErrors && response.insertErrors.length > 0) {
     Logger.log('挿入エラー: ' + JSON.stringify(response.insertErrors));
     throw new Error('BigQueryへの挿入中にエラーが発生しました');
   }
 }
 
-/**
- * 重複データを削除する（date, session_source_medium, session_manual_campaign_name, session_manual_term, session_google_ads_queryが同じ行で最新のfetched_atのみ残す）
- */
-function deduplicateTable_(projectId, datasetId, tableId) {
+function deduplicateTable_daterange_(projectId, datasetId, tableId) {
   const query = `
     DELETE FROM \`${projectId}.${datasetId}.${tableId}\`
     WHERE STRUCT(date, session_source_medium, session_manual_campaign_name, session_manual_term, session_google_ads_query, fetched_at)
@@ -198,11 +172,5 @@ function deduplicateTable_(projectId, datasetId, tableId) {
       GROUP BY date, session_source_medium, session_manual_campaign_name, session_manual_term, session_google_ads_query
     )
   `;
-
-  const request = {
-    query: query,
-    useLegacySql: false
-  };
-
-  BigQuery.Jobs.query(request, projectId);
+  BigQuery.Jobs.query({query: query, useLegacySql: false}, projectId);
 }
