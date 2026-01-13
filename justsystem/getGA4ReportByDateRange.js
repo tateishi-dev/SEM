@@ -103,7 +103,7 @@ function fetchAndInsertForDate_daterange_(propertyId, projectId, datasetId, temp
         {name: 'eventName'}
       ],
       metrics: [
-        {name: 'eventCount'}
+        {name: 'keyEvents'}
       ],
       dateRanges: [{
         startDate: targetDate,
@@ -166,7 +166,7 @@ function fetchAndInsertForDate_daterange_(propertyId, projectId, datasetId, temp
         google_ads_ad_group_name: row.dimensionValues[1].value,
         google_ads_query: row.dimensionValues[2].value,
         event_name: row.dimensionValues[4].value,
-        event_count: parseInt(row.metricValues[0].value),
+        key_events: parseInt(row.metricValues[0].value),
         fetched_at: fetchedAt
       }
     };
@@ -206,7 +206,7 @@ function createTempTable_daterange_(projectId, datasetId, tempTableId) {
         {name: 'google_ads_ad_group_name', type: 'STRING', mode: 'NULLABLE'},
         {name: 'google_ads_query', type: 'STRING', mode: 'NULLABLE'},
         {name: 'event_name', type: 'STRING', mode: 'NULLABLE'},
-        {name: 'event_count', type: 'INTEGER', mode: 'NULLABLE'},
+        {name: 'key_events', type: 'INTEGER', mode: 'NULLABLE'},
         {name: 'fetched_at', type: 'TIMESTAMP', mode: 'REQUIRED'}
       ]
     }
@@ -259,7 +259,7 @@ function mergeToMainTable_daterange_(projectId, datasetId, tableId, tempTableId)
       FROM (
         SELECT *,
           ROW_NUMBER() OVER (
-            PARTITION BY date, google_ads_campaign_name, google_ads_ad_group_name, google_ads_query, event_name
+            PARTITION BY date, google_ads_campaign_name, google_ads_ad_group_name, google_ads_query, event_name, key_events
             ORDER BY fetched_at DESC
           ) as row_num
         FROM (
@@ -280,7 +280,7 @@ function mergeToMainTable_daterange_(projectId, datasetId, tableId, tempTableId)
       FROM (
         SELECT *,
           ROW_NUMBER() OVER (
-            PARTITION BY date, google_ads_campaign_name, google_ads_ad_group_name, google_ads_query, event_name
+            PARTITION BY date, google_ads_campaign_name, google_ads_ad_group_name, google_ads_query, event_name, key_events
             ORDER BY fetched_at DESC
           ) as row_num
         FROM \`${projectId}.${datasetId}.${tempTableId}\`
