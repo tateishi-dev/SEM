@@ -212,11 +212,27 @@ function createTempTable_7days_(projectId, datasetId, tempTableId) {
 }
 
 function insertRowsToBigQuery_7days_(projectId, datasetId, tableId, rows) {
-  const response = BigQuery.Tabledata.insertAll({rows: rows}, projectId, datasetId, tableId);
-  if (response.insertErrors && response.insertErrors.length > 0) {
-    Logger.log('挿入エラー: ' + JSON.stringify(response.insertErrors));
-    throw new Error('BigQueryへの挿入中にエラーが発生しました');
+  // ストリーミングインサートは新規テーブルで不安定なため、クエリベースのINSERTを使用
+  const batchSize = 500;
+  for (let i = 0; i < rows.length; i += batchSize) {
+    const batch = rows.slice(i, i + batchSize);
+    const values = batch.map(row => {
+      const r = row.json;
+      return `('${r.date}', '${escapeString_7days_(r.google_ads_campaign_name)}', '${escapeString_7days_(r.google_ads_ad_group_name)}', '${escapeString_7days_(r.google_ads_query)}', '${escapeString_7days_(r.event_name)}', ${r.key_events}, '${r.fetched_at}')`;
+    }).join(',\n');
+
+    const query = `
+      INSERT INTO \`${projectId}.${datasetId}.${tableId}\`
+      (date, google_ads_campaign_name, google_ads_ad_group_name, google_ads_query, event_name, key_events, fetched_at)
+      VALUES ${values}
+    `;
+    BigQuery.Jobs.query({query: query, useLegacySql: false}, projectId);
   }
+}
+
+function escapeString_7days_(str) {
+  if (str === null || str === undefined) return '';
+  return String(str).replace(/'/g, "\\'").replace(/\\/g, '\\\\');
 }
 
 /**
