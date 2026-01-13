@@ -49,6 +49,9 @@ function getGA4Report7days() {
     Logger.log('本テーブルへのマージが完了しました。');
   }
 
+  // tempテーブルを削除
+  deleteTempTable_7days_(projectId, datasetId, tempTableId);
+
   Logger.log('BigQueryへのデータ更新が完了しました。');
 }
 
@@ -203,6 +206,18 @@ function insertRowsToBigQuery_7days_(projectId, datasetId, tableId, rows) {
   if (response.insertErrors && response.insertErrors.length > 0) {
     Logger.log('挿入エラー: ' + JSON.stringify(response.insertErrors));
     throw new Error('BigQueryへの挿入中にエラーが発生しました');
+  }
+}
+
+/**
+ * tempテーブルを削除
+ */
+function deleteTempTable_7days_(projectId, datasetId, tempTableId) {
+  try {
+    BigQuery.Tables.remove(projectId, datasetId, tempTableId);
+    Logger.log('tempテーブルを削除しました: ' + tempTableId);
+  } catch (e) {
+    Logger.log('tempテーブル削除エラー: ' + e);
   }
 }
 
