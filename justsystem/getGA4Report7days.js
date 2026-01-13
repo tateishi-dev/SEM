@@ -196,6 +196,8 @@ function createTempTable_7days_(projectId, datasetId, tempTableId) {
   };
   BigQuery.Tables.insert(table, projectId, datasetId);
   Logger.log('tempテーブルを作成しました: ' + tempTableId);
+  // テーブル作成の伝播を待機
+  Utilities.sleep(2000);
 }
 
 function insertRowsToBigQuery_7days_(projectId, datasetId, tableId, rows) {

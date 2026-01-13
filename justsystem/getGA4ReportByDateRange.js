@@ -213,6 +213,8 @@ function createTempTable_daterange_(projectId, datasetId, tempTableId) {
   };
   BigQuery.Tables.insert(table, projectId, datasetId);
   Logger.log('tempテーブルを作成しました: ' + tempTableId);
+  // テーブル作成の伝播を待機
+  Utilities.sleep(2000);
 }
 
 function insertRowsToBigQuery_daterange_(projectId, datasetId, tableId, rows) {
