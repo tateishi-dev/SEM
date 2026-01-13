@@ -96,9 +96,8 @@ function fetchAndInsertForDate_daterange_(propertyId, projectId, datasetId, temp
     const request = {
       property: 'properties/' + propertyId,
       dimensions: [
-        {name: 'sessionSourceMedium'},
-        {name: 'sessionManualCampaignName'},
-        {name: 'sessionManualTerm'},
+        {name: 'googleAdsCampaignName'},
+        {name: 'googleAdsAdGroupName'},
         {name: 'sessionGoogleAdsQuery'},
         {name: 'date'},
         {name: 'eventName'}
@@ -158,16 +157,15 @@ function fetchAndInsertForDate_daterange_(propertyId, projectId, datasetId, temp
 
   // GA4データをそのまま変換（集計なし）
   const rows = allRows.map(row => {
-    const dateStr = row.dimensionValues[4].value;
+    const dateStr = row.dimensionValues[3].value;
     const formattedDate = dateStr.replace(/(\d{4})(\d{2})(\d{2})/, '$1-$2-$3');
     return {
       json: {
         date: formattedDate,
-        session_source_medium: row.dimensionValues[0].value,
-        session_manual_campaign_name: row.dimensionValues[1].value,
-        session_manual_term: row.dimensionValues[2].value,
-        session_google_ads_query: row.dimensionValues[3].value,
-        event_name: row.dimensionValues[5].value,
+        google_ads_campaign_name: row.dimensionValues[0].value,
+        google_ads_ad_group_name: row.dimensionValues[1].value,
+        session_google_ads_query: row.dimensionValues[2].value,
+        event_name: row.dimensionValues[4].value,
         event_count: parseInt(row.metricValues[0].value),
         fetched_at: fetchedAt
       }
@@ -204,9 +202,8 @@ function createTempTable_daterange_(projectId, datasetId, tempTableId) {
     schema: {
       fields: [
         {name: 'date', type: 'DATE', mode: 'REQUIRED'},
-        {name: 'session_source_medium', type: 'STRING', mode: 'NULLABLE'},
-        {name: 'session_manual_campaign_name', type: 'STRING', mode: 'NULLABLE'},
-        {name: 'session_manual_term', type: 'STRING', mode: 'NULLABLE'},
+        {name: 'google_ads_campaign_name', type: 'STRING', mode: 'NULLABLE'},
+        {name: 'google_ads_ad_group_name', type: 'STRING', mode: 'NULLABLE'},
         {name: 'session_google_ads_query', type: 'STRING', mode: 'NULLABLE'},
         {name: 'event_name', type: 'STRING', mode: 'NULLABLE'},
         {name: 'event_count', type: 'INTEGER', mode: 'NULLABLE'},
@@ -262,7 +259,7 @@ function mergeToMainTable_daterange_(projectId, datasetId, tableId, tempTableId)
       FROM (
         SELECT *,
           ROW_NUMBER() OVER (
-            PARTITION BY date, session_source_medium, session_manual_campaign_name, session_manual_term, session_google_ads_query, event_name
+            PARTITION BY date, google_ads_campaign_name, google_ads_ad_group_name, session_google_ads_query, event_name
             ORDER BY fetched_at DESC
           ) as row_num
         FROM (
@@ -283,7 +280,7 @@ function mergeToMainTable_daterange_(projectId, datasetId, tableId, tempTableId)
       FROM (
         SELECT *,
           ROW_NUMBER() OVER (
-            PARTITION BY date, session_source_medium, session_manual_campaign_name, session_manual_term, session_google_ads_query, event_name
+            PARTITION BY date, google_ads_campaign_name, google_ads_ad_group_name, session_google_ads_query, event_name
             ORDER BY fetched_at DESC
           ) as row_num
         FROM \`${projectId}.${datasetId}.${tempTableId}\`
