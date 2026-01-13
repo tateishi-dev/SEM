@@ -1,18 +1,45 @@
-// ver3.2 - BigQuery対応版（パーティション対応）
+// ver3.3 - BigQuery対応版（パーティション対応）
+
+// 設定
+const CONFIG = {
+  propertyId: '331542258',
+  projectId: 'cyberace-mad',
+  datasetId: 'trocco_justsystem',
+  tableId: 'ga4_justsystems_google_ads_query'
+};
+
+/**
+ * 過去7日間のレポートを取得してBigQueryに保存
+ */
 function getGA4Report7days() {
-  // GA4のプロパティIDを入力してください（数値のみ）
-  const propertyId = '331542258';
+  getGA4Report_('7daysAgo', 'yesterday');
+}
 
-  // BigQuery設定
-  const projectId = 'cyberace-mad';
-  const datasetId = 'trocco_justsystem';
-  const tableId = 'ga4_justsystems_google_ads_query';
+/**
+ * 日付指定でレポートを取得してBigQueryに保存
+ * @param {string} startDate - 開始日（YYYY-MM-DD形式）
+ * @param {string} endDate - 終了日（YYYY-MM-DD形式）
+ */
+function getGA4ReportByDateRange(startDate, endDate) {
+  if (!startDate || !endDate) {
+    Logger.log('エラー: startDateとendDateを指定してください（YYYY-MM-DD形式）');
+    return;
+  }
+  getGA4Report_(startDate, endDate);
+}
 
-  // プロパティIDが設定されていない場合はエラーを表示
+/**
+ * レポート取得の共通処理
+ */
+function getGA4Report_(startDate, endDate) {
+  const { propertyId, projectId, datasetId, tableId } = CONFIG;
+
   if (propertyId === 'YOUR_GA4_PROPERTY_ID' || isNaN(propertyId)) {
     Logger.log('エラー: 有効なGA4プロパティIDを設定してください。数値のみが有効です。');
     return;
   }
+
+  Logger.log('取得期間: ' + startDate + ' 〜 ' + endDate);
 
   const request = {
     property: 'properties/' + propertyId,
@@ -28,24 +55,19 @@ function getGA4Report7days() {
       {name: 'eventCount'}
     ],
     dateRanges: [{
-      startDate: '7daysAgo',
-      endDate: 'yesterday'
+      startDate: startDate,
+      endDate: endDate
     }]
   };
 
   try {
-    // レポートの実行
     const report = AnalyticsData.Properties.runReport(request, 'properties/' + propertyId);
 
-    // 結果の処理
     if (report && report.rows) {
-      // テーブルが存在しない場合は作成
       ensureTableExists_(projectId, datasetId, tableId);
 
-      // 取得日時
       const fetchedAt = new Date().toISOString();
 
-      // データの集計
       const aggregatedData = {};
       report.rows.forEach(row => {
         const key = row.dimensionValues.slice(0, 5).map(d => d.value).join('|');
@@ -61,7 +83,6 @@ function getGA4Report7days() {
         const eventName = row.dimensionValues[5].value;
         const eventCount = parseInt(row.metricValues[0].value);
 
-        // イベント名に応じてカウントを振り分け
         switch(eventName) {
           case 'cv_prospect_all':
             aggregatedData[key].cvProspectAll = eventCount;
@@ -75,10 +96,9 @@ function getGA4Report7days() {
         }
       });
 
-      // BigQueryに挿入するデータを作成
       const rows = Object.values(aggregatedData).map(data => {
-        const dateStr = data.dimensions[4]; // YYYYMMDD形式の日付文字列
-        const formattedDate = dateStr.replace(/(\d{4})(\d{2})(\d{2})/, '$1-$2-$3'); // YYYY-MM-DD形式に変換
+        const dateStr = data.dimensions[4];
+        const formattedDate = dateStr.replace(/(\d{4})(\d{2})(\d{2})/, '$1-$2-$3');
         return {
           json: {
             date: formattedDate,
@@ -94,12 +114,10 @@ function getGA4Report7days() {
         };
       });
 
-      // BigQueryにデータを挿入
       if (rows.length > 0) {
         insertRowsToBigQuery_(projectId, datasetId, tableId, rows);
         Logger.log(rows.length + ' 行のデータをBigQueryに挿入しました。');
 
-        // 重複削除
         deduplicateTable_(projectId, datasetId, tableId);
         Logger.log('重複データを削除しました。');
       }
