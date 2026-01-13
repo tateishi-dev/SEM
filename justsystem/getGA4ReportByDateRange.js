@@ -227,27 +227,56 @@ function insertRowsToBigQuery_daterange_(projectId, datasetId, tableId, rows) {
  * tempテーブルから本テーブルへ重複除外してマージ
  */
 function mergeToMainTable_daterange_(projectId, datasetId, tableId, tempTableId) {
-  const query = `
-    CREATE OR REPLACE TABLE \`${projectId}.${datasetId}.${tableId}\`
-    PARTITION BY date
-    AS
-    SELECT * EXCEPT(row_num)
-    FROM (
-      SELECT *,
-        ROW_NUMBER() OVER (
-          PARTITION BY date, session_source_medium, session_manual_campaign_name, session_manual_term, session_google_ads_query, event_name
-          ORDER BY fetched_at DESC
-        ) as row_num
+  // 本テーブルが存在するか確認
+  let tableExists = false;
+  try {
+    BigQuery.Tables.get(projectId, datasetId, tableId);
+    tableExists = true;
+  } catch (e) {
+    tableExists = false;
+  }
+
+  let query;
+  if (tableExists) {
+    // 既存テーブルがある場合：UNION ALLしてマージ
+    query = `
+      CREATE OR REPLACE TABLE \`${projectId}.${datasetId}.${tableId}\`
+      PARTITION BY date
+      AS
+      SELECT * EXCEPT(row_num)
       FROM (
-        -- 既存データ
-        SELECT * FROM \`${projectId}.${datasetId}.${tableId}\`
-        UNION ALL
-        -- 新規データ
-        SELECT * FROM \`${projectId}.${datasetId}.${tempTableId}\`
+        SELECT *,
+          ROW_NUMBER() OVER (
+            PARTITION BY date, session_source_medium, session_manual_campaign_name, session_manual_term, session_google_ads_query, event_name
+            ORDER BY fetched_at DESC
+          ) as row_num
+        FROM (
+          SELECT * FROM \`${projectId}.${datasetId}.${tableId}\`
+          UNION ALL
+          SELECT * FROM \`${projectId}.${datasetId}.${tempTableId}\`
+        )
       )
-    )
-    WHERE row_num = 1
-  `;
+      WHERE row_num = 1
+    `;
+  } else {
+    // 本テーブルがない場合：tempテーブルからそのまま作成
+    query = `
+      CREATE OR REPLACE TABLE \`${projectId}.${datasetId}.${tableId}\`
+      PARTITION BY date
+      AS
+      SELECT * EXCEPT(row_num)
+      FROM (
+        SELECT *,
+          ROW_NUMBER() OVER (
+            PARTITION BY date, session_source_medium, session_manual_campaign_name, session_manual_term, session_google_ads_query, event_name
+            ORDER BY fetched_at DESC
+          ) as row_num
+        FROM \`${projectId}.${datasetId}.${tempTableId}\`
+      )
+      WHERE row_num = 1
+    `;
+    Logger.log('本テーブルが存在しないため、新規作成します');
+  }
 
   BigQuery.Jobs.query({query: query, useLegacySql: false}, projectId);
 }
