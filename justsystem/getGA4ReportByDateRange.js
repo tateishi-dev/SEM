@@ -98,7 +98,7 @@ function fetchAndInsertForDate_daterange_(propertyId, projectId, datasetId, temp
       dimensions: [
         {name: 'googleAdsCampaignName'},
         {name: 'googleAdsAdGroupName'},
-        {name: 'sessionGoogleAdsQuery'},
+        {name: 'googleAdsQuery'},
         {name: 'date'},
         {name: 'eventName'}
       ],

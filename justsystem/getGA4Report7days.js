@@ -81,7 +81,7 @@ function fetchAndInsertForDate_7days_(propertyId, projectId, datasetId, tempTabl
       dimensions: [
         {name: 'googleAdsCampaignName'},
         {name: 'googleAdsAdGroupName'},
-        {name: 'sessionGoogleAdsQuery'},
+        {name: 'googleAdsQuery'},
         {name: 'date'},
         {name: 'eventName'}
       ],
