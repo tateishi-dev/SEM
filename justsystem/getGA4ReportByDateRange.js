@@ -259,7 +259,7 @@ function mergeToMainTable_daterange_(projectId, datasetId, tableId, tempTableId)
       FROM (
         SELECT *,
           ROW_NUMBER() OVER (
-            PARTITION BY date, google_ads_campaign_name, google_ads_ad_group_name, google_ads_query, event_name, key_events
+            PARTITION BY date, google_ads_campaign_name, google_ads_ad_group_name, google_ads_query, event_name
             ORDER BY fetched_at DESC
           ) as row_num
         FROM (
@@ -280,7 +280,7 @@ function mergeToMainTable_daterange_(projectId, datasetId, tableId, tempTableId)
       FROM (
         SELECT *,
           ROW_NUMBER() OVER (
-            PARTITION BY date, google_ads_campaign_name, google_ads_ad_group_name, google_ads_query, event_name, key_events
+            PARTITION BY date, google_ads_campaign_name, google_ads_ad_group_name, google_ads_query, event_name
             ORDER BY fetched_at DESC
           ) as row_num
         FROM \`${projectId}.${datasetId}.${tempTableId}\`
