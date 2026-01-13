@@ -1,4 +1,4 @@
-// ver3.0 - BigQuery対応版
+// ver3.1 - BigQuery対応版
 function getGA4Report7days() {
   // GA4のプロパティIDを入力してください（数値のみ）
   const propertyId = '331542258';
@@ -82,10 +82,10 @@ function getGA4Report7days() {
         return {
           json: {
             date: formattedDate,
-            source_medium: data.dimensions[0],
-            campaign: data.dimensions[1],
-            keyword: data.dimensions[2],
-            google_ads_query: data.dimensions[3],
+            session_source_medium: data.dimensions[0],
+            session_manual_campaign_name: data.dimensions[1],
+            session_manual_term: data.dimensions[2],
+            session_google_ads_query: data.dimensions[3],
             cv_prospect_all: data.cvProspectAll,
             cv_seminar_all: data.cvSeminarAll,
             cv_contract_all: data.cvContractAll,
@@ -131,10 +131,10 @@ function ensureTableExists_(projectId, datasetId, tableId) {
       schema: {
         fields: [
           {name: 'date', type: 'DATE', mode: 'REQUIRED'},
-          {name: 'source_medium', type: 'STRING', mode: 'NULLABLE'},
-          {name: 'campaign', type: 'STRING', mode: 'NULLABLE'},
-          {name: 'keyword', type: 'STRING', mode: 'NULLABLE'},
-          {name: 'google_ads_query', type: 'STRING', mode: 'NULLABLE'},
+          {name: 'session_source_medium', type: 'STRING', mode: 'NULLABLE'},
+          {name: 'session_manual_campaign_name', type: 'STRING', mode: 'NULLABLE'},
+          {name: 'session_manual_term', type: 'STRING', mode: 'NULLABLE'},
+          {name: 'session_google_ads_query', type: 'STRING', mode: 'NULLABLE'},
           {name: 'cv_prospect_all', type: 'INTEGER', mode: 'NULLABLE'},
           {name: 'cv_seminar_all', type: 'INTEGER', mode: 'NULLABLE'},
           {name: 'cv_contract_all', type: 'INTEGER', mode: 'NULLABLE'},
@@ -164,7 +164,7 @@ function insertRowsToBigQuery_(projectId, datasetId, tableId, rows) {
 }
 
 /**
- * 重複データを削除する（date, source_medium, campaign, keyword, google_ads_queryが同じ行で最新のfetched_atのみ残す）
+ * 重複データを削除する（date, session_source_medium, session_manual_campaign_name, session_manual_term, session_google_ads_queryが同じ行で最新のfetched_atのみ残す）
  */
 function deduplicateTable_(projectId, datasetId, tableId) {
   const query = `
@@ -173,7 +173,7 @@ function deduplicateTable_(projectId, datasetId, tableId) {
     FROM (
       SELECT *,
         ROW_NUMBER() OVER (
-          PARTITION BY date, source_medium, campaign, keyword, google_ads_query
+          PARTITION BY date, session_source_medium, session_manual_campaign_name, session_manual_term, session_google_ads_query
           ORDER BY fetched_at DESC
         ) as row_num
       FROM \`${projectId}.${datasetId}.${tableId}\`
