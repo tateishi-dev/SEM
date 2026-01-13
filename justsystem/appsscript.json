@@ -6,6 +6,11 @@
         "userSymbol": "AnalyticsData",
         "version": "v1beta",
         "serviceId": "analyticsdata"
+      },
+      {
+        "userSymbol": "BigQuery",
+        "version": "v2",
+        "serviceId": "bigquery"
       }
     ]
   },

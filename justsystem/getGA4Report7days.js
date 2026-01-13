@@ -9,7 +9,7 @@ const CONFIG_7DAYS = {
 };
 
 /**
- * 過去7日間のレポートを取得してBigQueryに保存
+ * 過去7日間のレポートを取得してBigQueryに保存（日付ごとにループ）
  */
 function getGA4Report7days() {
   const { propertyId, projectId, datasetId, tableId } = CONFIG_7DAYS;
@@ -19,96 +19,158 @@ function getGA4Report7days() {
     return;
   }
 
-  Logger.log('取得期間: 過去7日間');
+  // 過去7日間の日付リストを生成
+  const dates = [];
+  for (let i = 7; i >= 1; i--) {
+    const d = new Date();
+    d.setDate(d.getDate() - i);
+    dates.push(formatDate_(d));
+  }
 
-  const request = {
-    property: 'properties/' + propertyId,
-    dimensions: [
-      {name: 'sessionSourceMedium'},
-      {name: 'sessionManualCampaignName'},
-      {name: 'sessionManualTerm'},
-      {name: 'sessionGoogleAdsQuery'},
-      {name: 'date'},
-      {name: 'eventName'}
-    ],
-    metrics: [
-      {name: 'eventCount'}
-    ],
-    dateRanges: [{
-      startDate: '7daysAgo',
-      endDate: 'yesterday'
-    }]
-  };
+  Logger.log('取得期間: ' + dates[0] + ' 〜 ' + dates[dates.length - 1]);
 
-  try {
-    const report = AnalyticsData.Properties.runReport(request, 'properties/' + propertyId);
+  // テーブル確認
+  ensureTableExists_7days_(projectId, datasetId, tableId);
 
-    if (report && report.rows) {
-      ensureTableExists_7days_(projectId, datasetId, tableId);
+  let totalRows = 0;
 
-      const fetchedAt = new Date().toISOString();
+  // 日付ごとにループ
+  for (const targetDate of dates) {
+    const rowCount = fetchAndInsertForDate_7days_(propertyId, projectId, datasetId, tableId, targetDate);
+    totalRows += rowCount;
+  }
 
-      const aggregatedData = {};
-      report.rows.forEach(row => {
-        const key = row.dimensionValues.slice(0, 5).map(d => d.value).join('|');
-        if (!aggregatedData[key]) {
-          aggregatedData[key] = {
-            dimensions: row.dimensionValues.slice(0, 5).map(d => d.value),
-            cvProspectAll: 0,
-            cvSeminarAll: 0,
-            cvContractAll: 0
-          };
-        }
+  Logger.log('合計 ' + totalRows + ' 行のデータを挿入しました。');
 
-        const eventName = row.dimensionValues[5].value;
-        const eventCount = parseInt(row.metricValues[0].value);
+  // 重複削除
+  if (totalRows > 0) {
+    deduplicateTable_7days_(projectId, datasetId, tableId);
+    Logger.log('重複データを削除しました。');
+  }
 
-        switch(eventName) {
-          case 'cv_prospect_all':
-            aggregatedData[key].cvProspectAll = eventCount;
-            break;
-          case 'cv_seminar_all':
-            aggregatedData[key].cvSeminarAll = eventCount;
-            break;
-          case 'cv_contract_all':
-            aggregatedData[key].cvContractAll = eventCount;
-            break;
-        }
-      });
+  Logger.log('BigQueryへのデータ更新が完了しました。');
+}
 
-      const rows = Object.values(aggregatedData).map(data => {
-        const dateStr = data.dimensions[4];
-        const formattedDate = dateStr.replace(/(\d{4})(\d{2})(\d{2})/, '$1-$2-$3');
-        return {
-          json: {
-            date: formattedDate,
-            session_source_medium: data.dimensions[0],
-            session_manual_campaign_name: data.dimensions[1],
-            session_manual_term: data.dimensions[2],
-            session_google_ads_query: data.dimensions[3],
-            cv_prospect_all: data.cvProspectAll,
-            cv_seminar_all: data.cvSeminarAll,
-            cv_contract_all: data.cvContractAll,
-            fetched_at: fetchedAt
-          }
-        };
-      });
+/**
+ * 指定日のデータを取得してBigQueryに挿入
+ */
+function fetchAndInsertForDate_7days_(propertyId, projectId, datasetId, tableId, targetDate) {
+  const fetchedAt = new Date().toISOString();
+  let allRows = [];
+  let offset = 0;
+  const limit = 100000;
 
-      if (rows.length > 0) {
-        insertRowsToBigQuery_7days_(projectId, datasetId, tableId, rows);
-        Logger.log(rows.length + ' 行のデータをBigQueryに挿入しました。');
+  // ページネーションループ
+  while (true) {
+    const request = {
+      property: 'properties/' + propertyId,
+      dimensions: [
+        {name: 'sessionSourceMedium'},
+        {name: 'sessionManualCampaignName'},
+        {name: 'sessionManualTerm'},
+        {name: 'sessionGoogleAdsQuery'},
+        {name: 'date'},
+        {name: 'eventName'}
+      ],
+      metrics: [
+        {name: 'eventCount'}
+      ],
+      dateRanges: [{
+        startDate: targetDate,
+        endDate: targetDate
+      }],
+      limit: limit,
+      offset: offset
+    };
 
-        deduplicateTable_7days_(projectId, datasetId, tableId);
-        Logger.log('重複データを削除しました。');
+    try {
+      const report = AnalyticsData.Properties.runReport(request, 'properties/' + propertyId);
+
+      if (!report || !report.rows || report.rows.length === 0) {
+        break;
       }
 
-      Logger.log('BigQueryへのデータ更新が完了しました。');
-    } else {
-      Logger.log('No data returned from the report.');
+      Logger.log(targetDate + ': API取得 ' + report.rows.length + ' 行 (offset: ' + offset + ')');
+      allRows = allRows.concat(report.rows);
+
+      if (report.rows.length < limit) {
+        break;
+      }
+      offset += limit;
+    } catch (e) {
+      Logger.log('Error fetching ' + targetDate + ': ' + e);
+      break;
     }
-  } catch (e) {
-    Logger.log('Error running report: ' + e);
   }
+
+  if (allRows.length === 0) {
+    Logger.log(targetDate + ': データなし');
+    return 0;
+  }
+
+  // データの集計
+  const aggregatedData = {};
+  allRows.forEach(row => {
+    const key = row.dimensionValues.slice(0, 5).map(d => d.value).join('|');
+    if (!aggregatedData[key]) {
+      aggregatedData[key] = {
+        dimensions: row.dimensionValues.slice(0, 5).map(d => d.value),
+        cvProspectAll: 0,
+        cvSeminarAll: 0,
+        cvContractAll: 0
+      };
+    }
+
+    const eventName = row.dimensionValues[5].value;
+    const eventCount = parseInt(row.metricValues[0].value);
+
+    switch(eventName) {
+      case 'cv_prospect_all':
+        aggregatedData[key].cvProspectAll = eventCount;
+        break;
+      case 'cv_seminar_all':
+        aggregatedData[key].cvSeminarAll = eventCount;
+        break;
+      case 'cv_contract_all':
+        aggregatedData[key].cvContractAll = eventCount;
+        break;
+    }
+  });
+
+  const rows = Object.values(aggregatedData).map(data => {
+    const dateStr = data.dimensions[4];
+    const formattedDate = dateStr.replace(/(\d{4})(\d{2})(\d{2})/, '$1-$2-$3');
+    return {
+      json: {
+        date: formattedDate,
+        session_source_medium: data.dimensions[0],
+        session_manual_campaign_name: data.dimensions[1],
+        session_manual_term: data.dimensions[2],
+        session_google_ads_query: data.dimensions[3],
+        cv_prospect_all: data.cvProspectAll,
+        cv_seminar_all: data.cvSeminarAll,
+        cv_contract_all: data.cvContractAll,
+        fetched_at: fetchedAt
+      }
+    };
+  });
+
+  if (rows.length > 0) {
+    insertRowsToBigQuery_7days_(projectId, datasetId, tableId, rows);
+    Logger.log(targetDate + ': ' + rows.length + ' 行を挿入');
+  }
+
+  return rows.length;
+}
+
+/**
+ * 日付をYYYY-MM-DD形式にフォーマット
+ */
+function formatDate_(date) {
+  const y = date.getFullYear();
+  const m = ('0' + (date.getMonth() + 1)).slice(-2);
+  const d = ('0' + date.getDate()).slice(-2);
+  return y + '-' + m + '-' + d;
 }
 
 function ensureTableExists_7days_(projectId, datasetId, tableId) {
