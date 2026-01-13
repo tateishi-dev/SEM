@@ -213,8 +213,19 @@ function createTempTable_daterange_(projectId, datasetId, tempTableId) {
   };
   BigQuery.Tables.insert(table, projectId, datasetId);
   Logger.log('tempテーブルを作成しました: ' + tempTableId);
-  // テーブル作成の伝播を待機
-  Utilities.sleep(2000);
+
+  // テーブルが利用可能になるまで待機
+  for (let i = 0; i < 10; i++) {
+    try {
+      BigQuery.Tables.get(projectId, datasetId, tempTableId);
+      Logger.log('tempテーブルの存在確認OK');
+      return;
+    } catch (e) {
+      Logger.log('tempテーブル待機中... (' + (i + 1) + '/10)');
+      Utilities.sleep(2000);
+    }
+  }
+  throw new Error('tempテーブルの作成確認がタイムアウトしました');
 }
 
 function insertRowsToBigQuery_daterange_(projectId, datasetId, tableId, rows) {
