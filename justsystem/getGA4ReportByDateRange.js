@@ -6,16 +6,17 @@ const CONFIG_DATERANGE = {
   projectId: 'cyberace-mad',
   datasetId: 'trocco_justsystem',
   tableId: 'ga4_justsystems_google_ads_query',
+  tempTableId: 'ga4_justsystems_google_ads_query_temp',
   // ↓ここで日付を指定（YYYY-MM-DD形式）
-  startDate: '2026-01-01',
-  endDate: '2026-01-05'
+  startDate: '2025-01-01',
+  endDate: '2025-01-01'
 };
 
 /**
  * 日付指定でレポートを取得してBigQueryに保存（日付ごとにループ）
  */
 function getGA4ReportByDateRange() {
-  const { propertyId, projectId, datasetId, tableId, startDate, endDate } = CONFIG_DATERANGE;
+  const { propertyId, projectId, datasetId, tableId, tempTableId, startDate, endDate } = CONFIG_DATERANGE;
 
   if (propertyId === 'YOUR_GA4_PROPERTY_ID' || isNaN(propertyId)) {
     Logger.log('エラー: 有効なGA4プロパティIDを設定してください。');
@@ -31,23 +32,23 @@ function getGA4ReportByDateRange() {
   const dates = getDateRange_(startDate, endDate);
   Logger.log('取得期間: ' + startDate + ' 〜 ' + endDate + ' (' + dates.length + '日間)');
 
-  // テーブル確認
-  ensureTableExists_daterange_(projectId, datasetId, tableId);
+  // tempテーブルを作成（または再作成）
+  createTempTable_daterange_(projectId, datasetId, tempTableId);
 
   let totalRows = 0;
 
   // 日付ごとにループ
   for (const targetDate of dates) {
-    const rowCount = fetchAndInsertForDate_daterange_(propertyId, projectId, datasetId, tableId, targetDate);
+    const rowCount = fetchAndInsertForDate_daterange_(propertyId, projectId, datasetId, tempTableId, targetDate);
     totalRows += rowCount;
   }
 
-  Logger.log('合計 ' + totalRows + ' 行のデータを挿入しました。');
+  Logger.log('合計 ' + totalRows + ' 行のデータをtempテーブルに挿入しました。');
 
-  // 重複削除
+  // tempテーブルから本テーブルへ重複除外してマージ
   if (totalRows > 0) {
-    deduplicateTable_daterange_(projectId, datasetId, tableId);
-    Logger.log('重複データを削除しました。');
+    mergeToMainTable_daterange_(projectId, datasetId, tableId, tempTableId);
+    Logger.log('本テーブルへのマージが完了しました。');
   }
 
   Logger.log('BigQueryへのデータ更新が完了しました。');
@@ -79,9 +80,9 @@ function formatDate_daterange_(date) {
 }
 
 /**
- * 指定日のデータを取得してBigQueryに挿入
+ * 指定日のデータを取得してtempテーブルに挿入
  */
-function fetchAndInsertForDate_daterange_(propertyId, projectId, datasetId, tableId, targetDate) {
+function fetchAndInsertForDate_daterange_(propertyId, projectId, datasetId, tempTableId, targetDate) {
   const fetchedAt = new Date().toISOString();
   let allRows = [];
   let offset = 0;
@@ -113,6 +114,23 @@ function fetchAndInsertForDate_daterange_(propertyId, projectId, datasetId, tabl
     try {
       const report = AnalyticsData.Properties.runReport(request, 'properties/' + propertyId);
 
+      // サンプリング情報をログ出力
+      if (offset === 0) {
+        if (report.metadata) {
+          if (report.metadata.samplingMetadatas && report.metadata.samplingMetadatas.length > 0) {
+            Logger.log(targetDate + ': ⚠️ サンプリングあり: ' + JSON.stringify(report.metadata.samplingMetadatas));
+          } else {
+            Logger.log(targetDate + ': ✓ サンプリングなし');
+          }
+          if (report.metadata.dataLossFromOtherRow) {
+            Logger.log(targetDate + ': ⚠️ (other)行へのデータ損失あり');
+          }
+        }
+        if (report.rowCount) {
+          Logger.log(targetDate + ': 総行数(rowCount): ' + report.rowCount);
+        }
+      }
+
       if (!report || !report.rows || report.rows.length === 0) {
         break;
       }
@@ -135,93 +153,66 @@ function fetchAndInsertForDate_daterange_(propertyId, projectId, datasetId, tabl
     return 0;
   }
 
-  // データの集計
-  const aggregatedData = {};
-  allRows.forEach(row => {
-    const key = row.dimensionValues.slice(0, 5).map(d => d.value).join('|');
-    if (!aggregatedData[key]) {
-      aggregatedData[key] = {
-        dimensions: row.dimensionValues.slice(0, 5).map(d => d.value),
-        cvProspectAll: 0,
-        cvSeminarAll: 0,
-        cvContractAll: 0
-      };
-    }
-
-    const eventName = row.dimensionValues[5].value;
-    const eventCount = parseInt(row.metricValues[0].value);
-
-    switch(eventName) {
-      case 'cv_prospect_all':
-        aggregatedData[key].cvProspectAll = eventCount;
-        break;
-      case 'cv_seminar_all':
-        aggregatedData[key].cvSeminarAll = eventCount;
-        break;
-      case 'cv_contract_all':
-        aggregatedData[key].cvContractAll = eventCount;
-        break;
-    }
-  });
-
-  const rows = Object.values(aggregatedData).map(data => {
-    const dateStr = data.dimensions[4];
+  // GA4データをそのまま変換（集計なし）
+  const rows = allRows.map(row => {
+    const dateStr = row.dimensionValues[4].value;
     const formattedDate = dateStr.replace(/(\d{4})(\d{2})(\d{2})/, '$1-$2-$3');
     return {
       json: {
         date: formattedDate,
-        session_source_medium: data.dimensions[0],
-        session_manual_campaign_name: data.dimensions[1],
-        session_manual_term: data.dimensions[2],
-        session_google_ads_query: data.dimensions[3],
-        cv_prospect_all: data.cvProspectAll,
-        cv_seminar_all: data.cvSeminarAll,
-        cv_contract_all: data.cvContractAll,
+        session_source_medium: row.dimensionValues[0].value,
+        session_manual_campaign_name: row.dimensionValues[1].value,
+        session_manual_term: row.dimensionValues[2].value,
+        session_google_ads_query: row.dimensionValues[3].value,
+        event_name: row.dimensionValues[5].value,
+        event_count: parseInt(row.metricValues[0].value),
         fetched_at: fetchedAt
       }
     };
   });
 
   if (rows.length > 0) {
-    insertRowsToBigQuery_daterange_(projectId, datasetId, tableId, rows);
+    insertRowsToBigQuery_daterange_(projectId, datasetId, tempTableId, rows);
     Logger.log(targetDate + ': ' + rows.length + ' 行を挿入');
   }
 
   return rows.length;
 }
 
-function ensureTableExists_daterange_(projectId, datasetId, tableId) {
+/**
+ * tempテーブルを作成（既存の場合は削除して再作成）
+ */
+function createTempTable_daterange_(projectId, datasetId, tempTableId) {
+  // 既存のtempテーブルを削除
   try {
-    BigQuery.Tables.get(projectId, datasetId, tableId);
-    Logger.log('テーブルは既に存在します: ' + tableId);
+    BigQuery.Tables.remove(projectId, datasetId, tempTableId);
+    Logger.log('既存のtempテーブルを削除しました');
   } catch (e) {
-    const table = {
-      tableReference: {
-        projectId: projectId,
-        datasetId: datasetId,
-        tableId: tableId
-      },
-      schema: {
-        fields: [
-          {name: 'date', type: 'DATE', mode: 'REQUIRED'},
-          {name: 'session_source_medium', type: 'STRING', mode: 'NULLABLE'},
-          {name: 'session_manual_campaign_name', type: 'STRING', mode: 'NULLABLE'},
-          {name: 'session_manual_term', type: 'STRING', mode: 'NULLABLE'},
-          {name: 'session_google_ads_query', type: 'STRING', mode: 'NULLABLE'},
-          {name: 'cv_prospect_all', type: 'INTEGER', mode: 'NULLABLE'},
-          {name: 'cv_seminar_all', type: 'INTEGER', mode: 'NULLABLE'},
-          {name: 'cv_contract_all', type: 'INTEGER', mode: 'NULLABLE'},
-          {name: 'fetched_at', type: 'TIMESTAMP', mode: 'REQUIRED'}
-        ]
-      },
-      timePartitioning: {
-        type: 'DAY',
-        field: 'date'
-      }
-    };
-    BigQuery.Tables.insert(table, projectId, datasetId);
-    Logger.log('テーブルを作成しました: ' + tableId);
+    // テーブルが存在しない場合は無視
   }
+
+  // tempテーブルを作成
+  const table = {
+    tableReference: {
+      projectId: projectId,
+      datasetId: datasetId,
+      tableId: tempTableId
+    },
+    schema: {
+      fields: [
+        {name: 'date', type: 'DATE', mode: 'REQUIRED'},
+        {name: 'session_source_medium', type: 'STRING', mode: 'NULLABLE'},
+        {name: 'session_manual_campaign_name', type: 'STRING', mode: 'NULLABLE'},
+        {name: 'session_manual_term', type: 'STRING', mode: 'NULLABLE'},
+        {name: 'session_google_ads_query', type: 'STRING', mode: 'NULLABLE'},
+        {name: 'event_name', type: 'STRING', mode: 'NULLABLE'},
+        {name: 'event_count', type: 'INTEGER', mode: 'NULLABLE'},
+        {name: 'fetched_at', type: 'TIMESTAMP', mode: 'REQUIRED'}
+      ]
+    }
+  };
+  BigQuery.Tables.insert(table, projectId, datasetId);
+  Logger.log('tempテーブルを作成しました: ' + tempTableId);
 }
 
 function insertRowsToBigQuery_daterange_(projectId, datasetId, tableId, rows) {
@@ -232,15 +223,31 @@ function insertRowsToBigQuery_daterange_(projectId, datasetId, tableId, rows) {
   }
 }
 
-function deduplicateTable_daterange_(projectId, datasetId, tableId) {
+/**
+ * tempテーブルから本テーブルへ重複除外してマージ
+ */
+function mergeToMainTable_daterange_(projectId, datasetId, tableId, tempTableId) {
   const query = `
-    DELETE FROM \`${projectId}.${datasetId}.${tableId}\`
-    WHERE STRUCT(date, session_source_medium, session_manual_campaign_name, session_manual_term, session_google_ads_query, fetched_at)
-    NOT IN (
-      SELECT AS STRUCT date, session_source_medium, session_manual_campaign_name, session_manual_term, session_google_ads_query, MAX(fetched_at) as fetched_at
-      FROM \`${projectId}.${datasetId}.${tableId}\`
-      GROUP BY date, session_source_medium, session_manual_campaign_name, session_manual_term, session_google_ads_query
+    CREATE OR REPLACE TABLE \`${projectId}.${datasetId}.${tableId}\`
+    PARTITION BY date
+    AS
+    SELECT * EXCEPT(row_num)
+    FROM (
+      SELECT *,
+        ROW_NUMBER() OVER (
+          PARTITION BY date, session_source_medium, session_manual_campaign_name, session_manual_term, session_google_ads_query, event_name
+          ORDER BY fetched_at DESC
+        ) as row_num
+      FROM (
+        -- 既存データ
+        SELECT * FROM \`${projectId}.${datasetId}.${tableId}\`
+        UNION ALL
+        -- 新規データ
+        SELECT * FROM \`${projectId}.${datasetId}.${tempTableId}\`
+      )
     )
+    WHERE row_num = 1
   `;
+
   BigQuery.Jobs.query({query: query, useLegacySql: false}, projectId);
 }
